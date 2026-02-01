@@ -208,3 +208,135 @@ fn matchPattern(str: []const u8, pattern: []const u8) bool {
 
     return std.mem.eql(u8, str, pattern);
 }
+
+// === TESTS ===
+
+test "Storage: set and get" {
+    const testing = std.testing;
+    var stor = Storage.init(testing.allocator);
+    defer stor.deinit();
+
+    try stor.set("key1", "value1");
+    const value = stor.get("key1");
+
+    try testing.expect(value != null);
+    try testing.expectEqualStrings("value1", value.?);
+}
+
+test "Storage: get: non-existent key" {
+    const testing = std.testing;
+    var stor = Storage.init(testing.allocator);
+    defer stor.deinit();
+
+    const value = stor.get("non-existent");
+    try testing.expect(value == null);
+}
+
+test "Storage: overwrite existing key" {
+    const testing = std.testing;
+    var stor = Storage.init(testing.allocator);
+    defer stor.deinit();
+
+    try stor.set("key1", "value1");
+    try stor.set("key1", "value2");
+
+    const value = stor.get("key1");
+
+    try testing.expect(value != null);
+    try testing.expectEqualStrings("value2", value.?);
+}
+
+test "Storage: delete key" {
+    const testing = std.testing;
+    var stor = Storage.init(testing.allocator);
+    defer stor.deinit();
+
+    try stor.set("key1", "value1");
+    const deleted = try stor.delete("key1");
+
+    try testing.expectEqual(true, deleted);
+    try testing.expect(stor.get("key1") == null);
+}
+
+test "Storage: delete non-existent key" {
+    const testing = std.testing;
+    var stor = Storage.init(testing.allocator);
+    defer stor.deinit();
+
+    const deleted = stor.delete("non-existent");
+    try testing.expectEqual(false, deleted);
+}
+
+test "Storage: exists check" {
+    const testing = std.testing;
+    var stor = Storage.init(testing.allocator);
+    defer stor.deinit();
+
+    try stor.set("key1", "value1");
+
+    try testing.expect(stor.exists("key1"));
+    try testing.expectEqual(false, stor.exists("non-existent"));
+}
+
+test "Storage: expire key" {
+    const testing = std.testing;
+    var stor = Storage.init(testing.allocator);
+    defer stor.deinit();
+
+    try stor.set("key1", "value1");
+    const expire = try stor.expire("key1", 1);
+
+    try testing.expectEqual(true, expire);
+    try testing.expect(stor.exists("key1"));
+
+    std.Thread.sleep(1000 * std.time.ns_per_ms);
+
+    try testing.expectEqual(false, stor.exists("key1"));
+}
+
+test "Storage: expire non-existent key" {
+    const testing = std.testing;
+    var stor = Storage.init(testing.allocator);
+    defer stor.deinit();
+
+    const expire = try stor.expire("non-existent", 10);
+    try testing.expectEqual(false, expire);
+}
+
+test "Storage: expired key is deleted on access" {
+    const testing = std.testing;
+    var stor = Storage.init(testing.allocator);
+    defer stor.deinit();
+
+    try stor.set("key1", "value1");
+    _ = try stor.expire("key1", 1);
+
+    std.Thread.sleep(1000 * std.time.ns_per_ms);
+
+    _ = stor.get("key1");
+
+    try testing.expectEqual(false, stor.exists("key1"));
+}
+
+test "Storage: ttl returns remaining seconds" {
+    const testing = std.testing;
+    var stor = Storage.init(testing.allocator);
+    defer stor.deinit();
+
+    try stor.set("key1", "value1");
+    _ = try stor.expire("key1", 100);
+
+    const ttl_value = stor.ttl("key1");
+    try testing.expect(ttl_value.? > 90 and ttl_value.? <= 100);
+}
+
+test "Storage: ttl returns -1 for key without expiration" {
+    const testing = std.testing;
+    var stor = Storage.init(testing.allocator);
+    defer stor.deinit();
+
+    try stor.set("key1", "value1");
+
+    const ttl_value = stor.ttl("key1");
+    try testing.expectEqual(-1, ttl_value);
+}
